@@ -30,56 +30,72 @@ async function guardarTareas(tareas) {
 }
 
 // **Ruta GET para obtener todas las tareas (PROTEGIDA)**
-app.get('/tareas', autenticarToken, async (req, res) => {
-    const tareas = await obtenerTareas();
-    res.json(tareas);
+app.get('/tareas', autenticarToken, async (req, res, next) => {
+    try {
+        const tareas = await obtenerTareas();
+        res.json(tareas);
+    } catch (error) {
+        next(error);
+    }
 });
 
 // **Ruta POST para agregar una tarea (PROTEGIDA)**
-app.post('/tareas', autenticarToken, async (req, res) => {
-    const { titulo, descripcion } = req.body;
-    if (!titulo || !descripcion) {
-        return res.status(400).json({ error: 'Título y descripción son obligatorios' });
-    }
+app.post('/tareas', autenticarToken, async (req, res, next) => {
+    try {
+        const { titulo, descripcion } = req.body;
+        if (!titulo || !descripcion) {
+            throw new Error('Título y descripción son obligatorios');
+        }
 
-    const tareas = await obtenerTareas();
-    const nuevaTarea = { id: tareas.length + 1, titulo, descripcion };
-    tareas.push(nuevaTarea);
-    
-    await guardarTareas(tareas);
-    res.status(201).json(nuevaTarea);
+        const tareas = await obtenerTareas();
+        const nuevaTarea = { id: tareas.length + 1, titulo, descripcion };
+        tareas.push(nuevaTarea);
+
+        await guardarTareas(tareas);
+        res.status(201).json(nuevaTarea);
+    } catch (error) {
+        next(error);
+    }
 });
 
 // **Ruta PUT para actualizar una tarea por ID (PROTEGIDA)**
-app.put('/tareas/:id', autenticarToken, async (req, res) => {
-    const { id } = req.params;
-    const { titulo, descripcion } = req.body;
+app.put('/tareas/:id', autenticarToken, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { titulo, descripcion } = req.body;
 
-    const tareas = await obtenerTareas();
-    const tareaIndex = tareas.findIndex(t => t.id == id);
-    
-    if (tareaIndex === -1) {
-        return res.status(404).json({ error: 'Tarea no encontrada' });
+        const tareas = await obtenerTareas();
+        const tareaIndex = tareas.findIndex(t => t.id == id);
+
+        if (tareaIndex === -1) {
+            throw new Error('Tarea no encontrada');
+        }
+
+        tareas[tareaIndex] = { ...tareas[tareaIndex], titulo, descripcion };
+        await guardarTareas(tareas);
+        res.json(tareas[tareaIndex]);
+    } catch (error) {
+        next(error);
     }
-
-    tareas[tareaIndex] = { ...tareas[tareaIndex], titulo, descripcion };
-    await guardarTareas(tareas);
-    res.json(tareas[tareaIndex]);
 });
 
 // **Ruta DELETE para eliminar una tarea por ID (PROTEGIDA)**
-app.delete('/tareas/:id', autenticarToken, async (req, res) => {
-    const { id } = req.params;
-    
-    let tareas = await obtenerTareas();
-    const tareasFiltradas = tareas.filter(t => t.id != id);
+app.delete('/tareas/:id', autenticarToken, async (req, res, next) => {
+    try {
+        const { id } = req.params;
 
-    if (tareas.length === tareasFiltradas.length) {
-        return res.status(404).json({ error: 'Tarea no encontrada' });
+        let tareas = await obtenerTareas();
+        const tareasFiltradas = tareas.filter(t => t.id != id);
+
+        if (tareas.length === tareasFiltradas.length) {
+            throw new Error('Tarea no encontrada');
+        }
+
+        await guardarTareas(tareasFiltradas);
+        res.status(200).json({ mensaje: 'Tarea eliminada' });
+    } catch (error) {
+        next(error);
     }
-
-    await guardarTareas(tareasFiltradas);
-    res.status(200).json({ mensaje: 'Tarea eliminada' });
 });
 
 /* ============================ MANEJO DE USUARIOS ============================ */
@@ -100,99 +116,100 @@ async function guardarUsuarios(usuarios) {
 }
 
 // **Ruta de Registro (`POST /register`)**
-app.post('/register', async (req, res) => {
-    console.log('Intento de registro:', req.body.username);
+app.post('/register', async (req, res, next) => {
+    try {
+        console.log('Intento de registro:', req.body.username);
+        const { username, password } = req.body;
+        if (!username || !password) {
+            throw new Error('Nombre de usuario y contraseña son obligatorios');
+        }
 
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: 'Nombre de usuario y contraseña son obligatorios' });
+        const usuarios = await obtenerUsuarios();
+        console.log('Usuarios actuales:', usuarios);
+
+        if (usuarios.find(user => user.username === username)) {
+            throw new Error('El usuario ya existe');
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        console.log('Contraseña encriptada:', hashedPassword);
+
+        const nuevoUsuario = { id: usuarios.length + 1, username, password: hashedPassword };
+        usuarios.push(nuevoUsuario);
+
+        await guardarUsuarios(usuarios);
+        console.log('Usuario registrado con éxito:', nuevoUsuario);
+
+        res.status(201).json({ mensaje: 'Usuario registrado exitosamente' });
+    } catch (error) {
+        next(error);
     }
-
-    const usuarios = await obtenerUsuarios();
-    console.log('Usuarios actuales:', usuarios);
-
-    const usuarioExistente = usuarios.find(user => user.username === username);
-    if (usuarioExistente) {
-        return res.status(400).json({ error: 'El usuario ya existe' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    console.log('Contraseña encriptada:', hashedPassword);
-
-    const nuevoUsuario = { id: usuarios.length + 1, username, password: hashedPassword };
-    usuarios.push(nuevoUsuario);
-
-    await guardarUsuarios(usuarios);
-    console.log('Usuario registrado con éxito:', nuevoUsuario);
-
-    res.status(201).json({ mensaje: 'Usuario registrado exitosamente' });
 });
-
 
 // **Ruta de Inicio de Sesión (`POST /login`)**
-app.post('/login', async (req, res) => {
-    console.log('Intento de login:', req.body.username);
+app.post('/login', async (req, res, next) => {
+    try {
+        console.log('Intento de login:', req.body.username);
 
-    const { username, password } = req.body;
-    const usuarios = await obtenerUsuarios();
-    const usuario = usuarios.find(user => user.username === username);
+        const { username, password } = req.body;
+        const usuarios = await obtenerUsuarios();
+        const usuario = usuarios.find(user => user.username === username);
 
-    if (!usuario) {
-        console.log('Usuario no encontrado:', username);
-        return res.status(400).json({ error: 'Usuario o contraseña incorrectos' });
+        if (!usuario || !(await bcrypt.compare(password, usuario.password))) {
+            throw new Error('Usuario o contraseña incorrectos');
+        }
+
+        const token = jwt.sign({ id: usuario.id, username: usuario.username }, SECRET_KEY, { expiresIn: '1h' });
+
+        console.log('Token generado:', token);
+        res.json({ mensaje: 'Inicio de sesión exitoso', token });
+    } catch (error) {
+        next(error);
     }
-
-    const esPasswordCorrecto = await bcrypt.compare(password, usuario.password);
-    if (!esPasswordCorrecto) {
-        console.log('Contraseña incorrecta para:', username);
-        return res.status(400).json({ error: 'Usuario o contraseña incorrectos' });
-    }
-
-    const token = jwt.sign({ id: usuario.id, username: usuario.username }, SECRET_KEY, { expiresIn: '1h' });
-
-    console.log('Token generado:', token);
-    res.json({ mensaje: 'Inicio de sesión exitoso', token });
 });
-
 
 /* ============================ AUTENTICACIÓN ============================ */
 // **Middleware de autenticación**
 function autenticarToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];  // Extraer el token
+    try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) {
-        return res.status(401).json({ error: 'Acceso denegado. Token requerido' });
-    }
-
-    jwt.verify(token, SECRET_KEY, (err, user) => {
-        if (err) {
-            return res.status(403).json({ error: 'Token inválido' });
+        if (!token) {
+            throw new Error('Acceso denegado. Token requerido');
         }
-        req.user = user;  // Asignar usuario al request
-        next();
-    });
+
+        jwt.verify(token, SECRET_KEY, (err, user) => {
+            if (err) {
+                throw new Error('Token inválido');
+            }
+            req.user = user;
+            next();
+        });
+    } catch (error) {
+        next(error);
+    }
 }
 
-// Middleware para manejar errores de manera más específica
+// Middleware de manejo de errores
 app.use((err, req, res, next) => {
-    console.error(`Error: ${err.message}`);
+    console.error(`🛑 Error detectado: ${err.message}`);
 
-    if (err.name === 'ValidationError') {
+    if (err.message.includes("Token requerido")) {
+        return res.status(401).json({ error: err.message });
+    }
+    if (err.message.includes("Token inválido")) {
+        return res.status(403).json({ error: err.message });
+    }
+    if (err.message.includes("Tarea no encontrada")) {
+        return res.status(404).json({ error: err.message });
+    }
+    if (err.name === "ValidationError") {
         return res.status(400).json({ error: err.message });
     }
 
-    if (err.name === 'JsonWebTokenError') {
-        return res.status(403).json({ error: 'Token inválido' });
-    }
-
-    if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Token expirado' });
-    }
-
-    res.status(500).json({ error: 'Ocurrió un error en el servidor' });
+    res.status(500).json({ error: "Ocurrió un error en el servidor" });
 });
-
 
 // **Iniciar el servidor**
 app.listen(PORT, () => {
